@@ -1,10 +1,11 @@
 import pandas as pd
 import tensorflow as tf
 import numpy as np
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, find
 
 import src.config as config
 from src.rec_mf import RecMF
+from src.util_recsys import *
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -54,7 +55,7 @@ num_items = mat_train.shape[1]
 # ----------------------------------------------------------------------------------------------------------------------
 # Model Declaration, including training setting
 #
-rec_model = RecMF(num_users, num_items, config.dim_factors)
+rec_model = RecMF(num_users, num_items, config.dim_factors, config.max_quantize)
 
 optimizer = tf.optimizers.Adam(config.learning_rate)
 ema = tf.train.ExponentialMovingAverage(decay=config.emv_decay)
@@ -63,7 +64,8 @@ binary_ce = tf.keras.losses.BinaryCrossentropy()
 # ----------------------------------------------------------------------------------------------------------------------
 # Model Training
 #
-max_step = config.max_epoch * int(num_users * num_items / config.batch_size)
+steps_per_epoch = int(num_users * num_items / config.batch_size)
+max_step = config.max_epoch * steps_per_epoch
 
 
 def sample_data():
@@ -118,7 +120,20 @@ for step in range(max_step):
 
     if step % 100 == 0:
         loss = testing()
-        print("testing loss = %f" % loss)
+
+        # Validation
+        valid_user_idx, _, _ = find(mat_valid)
+        valid_user_idx = set(valid_user_idx)
+        valid_results = evaluate(mat_test, mat_train, rec_model, valid_user_idx, config.top_ks, use_prec_n_recl=True)
+
+        # Testing
+        test_user_idx, _, _ = find(mat_test)
+        test_user_idx = set(test_user_idx) | valid_user_idx
+        test_results = evaluate(mat_test + mat_valid, mat_train, rec_model, test_user_idx, config.top_ks, use_prec_n_recl=True)
+
+
+
+        print("Step: %d / %d  testing loss = %f" % (step, steps_per_epoch, loss))
 
 
 
